@@ -13,8 +13,8 @@ Este projeto propõe e implementa um sistema de rastreamento bovino baseado em c
  
 A arquitetura é composta por dois elementos principais:
  
-- **Nó Embarcado (Coleira):** ESP32 + módulo LoRa SX1276 + receptor GPS NEO-6M
-- **Estação Base (Concentrador):** Raspberry Pi + módulo LoRa SX1276 + Node-RED + SQLite
+- **Nó Embarcado (Coleira):** ESP32 + IoT DevKit LoRaWAN + receptor GPS NEO-6M
+- **Estação Base (Concentrador):** Raspberry Pi + IoT DevKit LoRaWAN + Node-RED + SQLite
 ---
  
 ## 🏗️ Arquitetura do Sistema
@@ -47,7 +47,7 @@ A arquitetura é composta por dois elementos principais:
 | ESP32 | Microcontrolador principal (coleira e base) |
 | SMW-SX1276M0 | Módulo LoRa transceptor (Semtech SX1276) |
 | GPS NEO-6M | Receptor GPS L1 (C/A) |
-| Raspberry Pi | Concentrador local (Estação Base) |
+| Raspberry Pi Zero 2w| Concentrador local (Estação Base) |
 | Painel Solar + Bateria | Alimentação autônoma da Estação Base |
  
 ---
@@ -131,8 +131,7 @@ TCC_Rosialdo/
 ├── banco/
 │   └── schema.sql             # Schema do banco SQLite
 ├── docs/
-│   ├── TCC_2.pdf              # Monografia TCC 2
-│   └── TCC_2_Artigo.pdf       # Artigo do TCC
+│   ├── TCC_2.pdf              # Arquivo do TCC 2
 └── README.md
 ```
  
