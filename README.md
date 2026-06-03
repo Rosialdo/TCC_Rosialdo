@@ -13,7 +13,7 @@ Este projeto propõe e implementa um sistema de rastreamento bovino baseado em c
  
 A arquitetura é composta por dois elementos principais:
  
-- **Nó Embarcado (Coleira):** ESP32 + IoT DevKit LoRaWAN + receptor GPS NEO-6M
+- **Nó Embarcado (Coleira):** IoT DevKit LoRaWAN + receptor GPS NEO-6M
 - **Estação Base (Concentrador):** Raspberry Pi + IoT DevKit LoRaWAN + Node-RED + SQLite
 ---
  
@@ -50,6 +50,22 @@ A arquitetura é composta por dois elementos principais:
 | Raspberry Pi Zero 2w| Concentrador local (Estação Base) |
 | Painel Solar + Bateria | Alimentação autônoma da Estação Base |
  
+---
+
+## Montagem do Hardware da Base
+
+### IoT DevKit LoRaWAN + GPS
+
+#### Adicionar imagem
+
+#### `Codigo para base`
+
+```
+
+```
+
+
+
 ---
  
 ## 📡 Protocolo de Comunicação
@@ -214,12 +230,7 @@ http://<IP_RASP>:1880/worldmap
  
 ## 📚 Referências
  
-- HAXHIBEQIRI, J. et al. A survey of LoRaWAN for IoT. *Sensors*, 2018.
-- MAMATNABIYEV, Z. Animal tracking system based on GPS sensor and LPWAN. *SIST*, 2022.
-- KUMKHET et al. Low-cost LoRa-based monitoring for livestock. 2025.
-- WELSCHER et al. Base station placement optimization for bovine tracking. 2023.
-- u-blox AG. NEO-6 datasheet. 2011.
----
+
  
 ## 📄 Licença
  
