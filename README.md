@@ -56,7 +56,7 @@ A arquitetura é composta por dois elementos principais:
 
 ### IoT DevKit LoRaWAN 
 
-#### Adicionar imagem
+![IoT DevKit base](/images/lora_base.jpg)
 
 #### `Codigo para base`
 
@@ -176,22 +176,23 @@ void loop() {
 
 ### Raspbarry pi zero 2w
 
-#### Adicionar imagem
+![Raspbarry](/images/rasp.jpg)
 
 ### Modulo de bateria
 
-#### Adicionar imagem
+![bateria](/images/carregador.jpg)
 
 ### Placa Solar
 
-#### Adicionar imagem
+![placa solar tipo C](/images/painel_base.jpg)
+
 ---
 
 ## Hardware da Coleira
 
 ### IoT DevKit LoRaWAN + GPS
 
-#### Adicionar imagem
+![IoT DevKit coleira](/images/lora_coleira.jpg)
 
 #### `Codigo para coleira`
 
