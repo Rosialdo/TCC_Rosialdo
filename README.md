@@ -176,17 +176,14 @@ void loop() {
 
 ### Raspbarry pi zero 2w
 
-![Raspbarry](/images/rasp.jpg)
 <img src="/images/rasp.jpg" width="80%" height="80%" alt= "Raspbarry">
 
 ### Modulo de bateria
 
-![bateria](/images/carregador.jpg)
 <img src="/images/carregador.jpg" width="80%" height="80%" alt= "Bateria">
 
 ### Placa Solar
 
-![placa solar tipo C](/images/painel_base.jpg)
 <img src="/images/painel_base.jpg" width="80%" height="80%" alt= "Placa Solar tipo C">
 
 ---
@@ -194,8 +191,6 @@ void loop() {
 ## Hardware da Coleira
 
 ### IoT DevKit LoRaWAN + GPS
-
-![IoT DevKit coleira](/images/lora_coleira.jpg)
 
 <img src="/images/lora_coleira.jpg" width="80%" height="80%" alt= "IoT DevKit coleira">
 
