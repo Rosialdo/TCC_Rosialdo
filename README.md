@@ -57,6 +57,7 @@ A arquitetura é composta por dois elementos principais:
 ### IoT DevKit LoRaWAN 
 
 ![IoT DevKit base](/images/lora_base.jpg)
+<img src="/images/lora_base.jpg" width="300" height="200" alt= "IoT DevKit base">
 
 #### `Codigo para base`
 
