@@ -56,7 +56,7 @@ A arquitetura é composta por dois elementos principais:
 
 ### IoT DevKit LoRaWAN 
 
-<img src="/images/lora_base.jpg" width="50%" height="50%" alt= "IoT DevKit base">
+<img src="/images/lora_base.jpg" width="80%" height="80%" alt= "IoT DevKit base">
 
 #### `Codigo para base`
 
@@ -177,14 +177,17 @@ void loop() {
 ### Raspbarry pi zero 2w
 
 ![Raspbarry](/images/rasp.jpg)
+<img src="/images/rasp.jpg" width="80%" height="80%" alt= "Raspbarry">
 
 ### Modulo de bateria
 
 ![bateria](/images/carregador.jpg)
+<img src="/images/carregador.jpg" width="80%" height="80%" alt= "Bateria">
 
 ### Placa Solar
 
 ![placa solar tipo C](/images/painel_base.jpg)
+<img src="/images/painel_base.jpg" width="80%" height="80%" alt= "Placa Solar tipo C">
 
 ---
 
@@ -193,6 +196,8 @@ void loop() {
 ### IoT DevKit LoRaWAN + GPS
 
 ![IoT DevKit coleira](/images/lora_coleira.jpg)
+
+<img src="/images/lora_coleira.jpg" width="80%" height="80%" alt= "IoT DevKit coleira">
 
 #### `Codigo para coleira`
 
@@ -300,6 +305,10 @@ void loop() {
 }
 
 ```
+
+### Modulo de Bateria
+
+<img src="/images/carregador.jpg" width="80%" height="80%" alt= "Bateria">
 ---
  
 ## 📡 Protocolo de Comunicação
