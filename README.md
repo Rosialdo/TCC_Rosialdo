@@ -1,20 +1,23 @@
-# 🐄 TCC_Rosialdo — Rastreio Bovino com LoRa e GPS
+# 🐄 TCC_Rosialdo — Rastreio Bovino com LoRa Multi-hop e GPS
  
-> **Rastreio bovino: Uma solução Offline-First com LoRa e GPS para a realidade de Roraima**  
-> Universidade Federal de Roraima (UFRR) — Bacharelado em Ciência da Computação  
-> Autor: Rosialdo Queivison Vidinho de Queiroz Vicente  
+> **Rastreio bovino: Uma solução com retransmissão LoRa multi-hop e GPS para a realidade de Roraima**
+> Universidade Federal de Roraima (UFRR) — Bacharelado em Ciência da Computação
+> Autor: Rosialdo Queivison Vidinho de Queiroz Vicente
 > Orientador: Prof. Dr. Felipe Lobo
  
 ---
  
 ## 📋 Sobre o Projeto
  
-Este projeto propõe e implementa um sistema de rastreamento bovino baseado em comunicação **LoRa P2P** e **GPS**, com armazenamento local e painel de visualização, voltado para propriedades rurais com conectividade limitada ou inexistente.
+Este projeto propõe e implementa um sistema de rastreamento bovino baseado em comunicação **LoRa P2P com retransmissão multi-hop** e **GPS**, capaz de estender a cobertura de rastreamento até um ponto com conectividade à internet (Wi-Fi ou celular), mesmo quando o local de pastagem está fora do alcance direto de rádio desse ponto — situação comum em propriedades rurais extensas de Roraima, com vegetação amazônica densa e relevo irregular.
  
-A arquitetura é composta por dois elementos principais:
+A arquitetura é composta por três camadas:
  
-- **Nó Embarcado (Coleira):** IoT DevKit LoRaWAN + receptor GPS NEO-6M
-- **Estação Base (Concentrador):** Raspberry Pi + IoT DevKit LoRaWAN + Node-RED + SQLite
+- **Nó Sensor (Coleira):** ESP32 + GPS NEO-6M + LoRa SX1276 — coleta coordenadas e transmite via rádio
+- **Cadeia de Repetidores:** nós ESP32 + LoRa SX1276 que retransmitem os pacotes salto a salto, usando flooding controlado com TTL e deduplicação
+- **Nó Gateway:** ESP32 + LoRa SX1276 + Wi-Fi — recebe o pacote final da cadeia e o encaminha via HTTP para a plataforma de nuvem (Ubidots)
+> ℹ️ **Nota de versão:** as primeiras versões deste projeto usavam uma arquitetura offline-first com Raspberry Pi, Node-RED e SQLite como Estação Base local. Essa abordagem foi substituída pela arquitetura multi-hop descrita aqui, que estende a cobertura por retransmissão até um ponto com internet em vez de operar totalmente offline. O histórico da versão anterior permanece no log de commits do repositório.
+ 
 ---
  
 ## 🏗️ Arquitetura do Sistema
@@ -22,353 +25,104 @@ A arquitetura é composta por dois elementos principais:
 ```
 [Coleira - ESP32]
    GPS NEO-6M → lê coordenadas
-   SX1276     → transmite via LoRa P2P (902-928 MHz)
+   SX1276     → monta payload (nodeId, seq, TTL, lat, lon, sat, hdop, status)
+              → transmite via LoRa P2P (902-928 MHz)
         |
-        | LoRa P2P
+        | LoRa P2P (salto 1)
         ↓
-[Estação Base - Raspberry Pi]
-   SX1276     → recebe pacotes LoRa
-   ESP32 Base → parseia payload e envia via HTTP POST (WiFi)
+[Repetidor 1 - ESP32 + SX1276]
+   → recebe pacote, verifica duplicidade (nodeId + seq)
+   → decrementa TTL, aguarda backoff aleatorio
+   → retransmite (broadcast)
         |
-        | HTTP POST (JSON)
+        | LoRa P2P (salto 2..N)
         ↓
-[Node-RED]
-   → Salva no SQLite (/home/pi/rastreio.db)
-   → Motor de regras: geofencing + perda de contato
-   → Painel visual: worldmap (http://<ip>:1880/worldmap)
+   [Repetidor 2, 3... conforme necessario]
+        |
+        ↓
+[Gateway - ESP32 + Wi-Fi]
+   SX1276  → recebe pacote final da cadeia
+   ESP32   → decodifica, calcula hop_count, monta JSON
+           → envia via HTTP POST (Wi-Fi) para a nuvem
+        |
+        | HTTPS POST (JSON)
+        ↓
+[Ubidots — plataforma de nuvem]
+   → Armazena posicao, RSSI/SNR, hop_count, status do GPS
+   → Motor de regras: geofencing + perda de contato (heartbeat)
+   → Painel de visualizacao (mapa em tempo real)
 ```
  
 ---
  
 ## 🛠️ Hardware Utilizado
  
-| Componente | Descrição |
+| Componente | Onde é usado | Descrição |
+|---|---|---|
+| ESP32 | Coleira, repetidores, gateway | Microcontrolador principal |
+| SMW-SX1276M0 | Coleira, repetidores, gateway | Módulo LoRa transceptor (Semtech SX1276) |
+| GPS NEO-6M | Coleira | Receptor GPS L1 (C/A) |
+| Bateria | Coleira | Alimentação da coleira |
+| Bateria + Painel Solar | Repetidores e Gateway | Alimentação autônoma dos nós fixos em campo |
+ 
+*(o Raspberry Pi Zero 2W não faz mais parte da arquitetura — o Gateway hoje é apenas o ESP32, sem computador de placa única)*
+ 
+---
+ 
+## 📁 Firmware
+ 
+O código de cada nó vive em `firmware/<nó>/`:
+ 
+- [`firmware/coleira/coleira.ino`](firmware/coleira/coleira.ino) — nó sensor
+- [`firmware/repetidor/repetidor.ino`](firmware/repetidor/repetidor.ino) — nó repetidor
+- [`firmware/gateway/gateway.ino`](firmware/gateway/gateway.ino) — nó gateway
+### Formato do payload (protocolo multi-hop)
+ 
+```
+nodeId,seq,ttl,lat,lon,sat,hdop,status
+```
+ 
+| Campo | Descrição |
 |---|---|
-| ESP32 | Microcontrolador principal (coleira e base) |
-| SMW-SX1276M0 | Módulo LoRa transceptor (Semtech SX1276) |
-| GPS NEO-6M | Receptor GPS L1 (C/A) |
-| Raspberry Pi Zero 2w| Concentrador local (Estação Base) |
-| Painel Solar + Bateria | Alimentação autônoma da Estação Base |
+| `nodeId` | Identificador do nó sensor de origem |
+| `seq` | Contador de sequência (usado para deduplicação e cálculo de PDR) |
+| `ttl` | Contador de saltos restantes (decrementado a cada retransmissão) |
+| `lat`, `lon` | Coordenadas GPS |
+| `sat`, `hdop` | Qualidade do fix GPS |
+| `status` | `OK` (fix válido) ou `NOFIX` |
  
----
-
-## Hardware da Base
-
-### IoT DevKit LoRaWAN 
-
-<img src="/images/lora_base.jpg" width="80%" height="80%" alt= "IoT DevKit base">
-
-#### `Codigo para base`
-
-```
-#include "RoboCore_SMW_SX1276M0.h"
-#include <HardwareSerial.h>
-#include <WiFi.h>
-#include <HTTPClient.h>
-
-HardwareSerial LoRaSerial(2);
-#define RXD2 16
-#define TXD2 17
-SMW_SX1276M0 lorawan(LoRaSerial);
-
-const char* ssid = "SUA_REDE";
-const char* password = "SUA_SENHA";
-const char* serverURL = "http://<IP_RASP>:1880/dados";
-
-String hexParaTexto(String hex) {
-  String resultado = "";
-  for (int i = 0; i < hex.length(); i += 2) {
-    String byteStr = hex.substring(i, i + 2);
-    char c = (char) strtol(byteStr.c_str(), NULL, 16);
-    resultado += c;
-  }
-  return resultado;
-}
-
-String extraiValor(String texto, String chave) {
-  int idx = texto.indexOf(chave);
-  if (idx < 0) return "0";
-  idx += chave.length();
-  int fim = texto.indexOf(' ', idx);
-  if (fim < 0) fim = texto.length();
-  return texto.substring(idx, fim);
-}
-
-void setup() {
-  Serial.begin(115200);
-  Serial.println("Iniciando estacao base...");
-
-  WiFi.begin(ssid, password);
-  Serial.print("Conectando WiFi");
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.println("\nWiFi OK! IP: " + WiFi.localIP().toString());
-
-  LoRaSerial.begin(115200, SERIAL_8N1, RXD2, TXD2);
-  lorawan.setPinReset(5);
-  lorawan.reset();
-  delay(3000);
-  lorawan.set_JoinMode(SMW_SX1276M0_JOIN_MODE_P2P);
-  delay(2000);
-  Serial.println("Estacao base pronta!");
-}
-
-void loop() {
-  String rssi = "0", snr = "0";
-
-  while (LoRaSerial.available()) {
-    String raw = LoRaSerial.readStringUntil('\n');
-    raw.trim();### IoT DevKit LoRaWAN + GPS
-
-    if (raw.indexOf("rssi") > 0 && raw.indexOf("snr") > 0) {
-      rssi = extraiValor(raw, "rssi ");
-      snr  = extraiValor(raw, "snr ");
-    }
-
-    if (raw.indexOf("RECVB") > 0) {
-      int idx = raw.lastIndexOf(':');
-      if (idx > 0) {
-        String hex = raw.substring(idx + 1);
-        hex.trim();
-        String dados = hexParaTexto(hex);
-
-        // Parse: seq,lat,lon,sat,hdop,status
-        int c1 = dados.indexOf(',');
-        int c2 = dados.indexOf(',', c1 + 1);
-        int c3 = dados.indexOf(',', c2 + 1);
-        int c4 = dados.indexOf(',', c3 + 1);
-        int c5 = dados.indexOf(',', c4 + 1);
-
-        String seq  = dados.substring(0, c1);
-        String lat  = dados.substring(c1 + 1, c2);
-        String lon  = dados.substring(c2 + 1, c3);
-        String sat  = dados.substring(c3 + 1, c4);
-        String hdop = dados.substring(c4 + 1, c5);
-
-        String json = "{\"seq\":" + seq +
-                      ",\"lat\":" + lat +
-                      ",\"lon\":" + lon +
-                      ",\"sat\":" + sat +
-                      ",\"hdop\":" + hdop +
-                      ",\"rssi\":" + rssi +
-                      ",\"snr\":" + snr + "}";
-
-        Serial.println("Enviando: " + json);
-
-        if (WiFi.status() == WL_CONNECTED) {
-          HTTPClient http;
-          http.begin(serverURL);
-          http.addHeader("Content-Type", "application/json");
-          int code = http.POST(json);
-          Serial.println("HTTP: " + String(code));
-          http.end();
-        }
-
-        rssi = "0";
-        snr  = "0";
-      }
-    }
-  }
-}
-```
-
-### Raspbarry pi zero 2w
-
-<img src="/images/rasp.jpg" width="80%" height="80%" alt= "Raspbarry">
-
-### Modulo de bateria
-
-<img src="/images/carregador.jpg" width="80%" height="80%" alt= "Bateria">
-
-### Placa Solar
-
-<img src="/images/painel_base.jpg" width="80%" height="80%" alt= "Placa Solar tipo C">
-
----
-
-## Hardware da Coleira
-
-### IoT DevKit LoRaWAN + GPS
-
-<img src="/images/lora_coleira.jpg" width="80%" height="80%" alt= "IoT DevKit coleira">
-
-#### `Codigo para coleira`
-
-```
-#include "RoboCore_SMW_SX1276M0.h"
-#include <HardwareSerial.h>
-#include <TinyGPS++.h>
-
-HardwareSerial LoRaSerial(2);
-#define RXD2 16
-#define TXD2 17
-SMW_SX1276M0 lorawan(LoRaSerial);
-
-HardwareSerial gpsSerial(1);
-#define GPS_RX 27
-#define GPS_TX 26
-TinyGPSPlus gps;
-
-int seq = 0;
-
-void printSeparador() {
-  Serial.println("========================================");
-}
-
-void setup() {
-  Serial.begin(115200);
-  printSeparador();
-  Serial.println("   COLEIRA - NO EMBARCADO v1.0");
-  printSeparador();
-
-  Serial.print("[LORA] Inicializando...");
-  LoRaSerial.begin(115200, SERIAL_8N1, RXD2, TXD2);
-  lorawan.setPinReset(5);
-  lorawan.reset();
-  delay(3000);
-  lorawan.set_JoinMode(SMW_SX1276M0_JOIN_MODE_P2P);
-  delay(2000);
-  Serial.println(" OK");
-
-  Serial.print("[GPS]  Inicializando...");
-  gpsSerial.begin(9600, SERIAL_8N1, GPS_RX, GPS_TX);
-  Serial.println(" OK");
-
-  printSeparador();
-  Serial.println("[INFO] Sistema pronto — aguardando fix GPS");
-  printSeparador();
-}
-
-void loop() {
-  Serial.println();
-  Serial.println("-------- CICLO #" + String(seq) + " --------");
-
-  Serial.print("[GPS]  Buscando sinal... ");
-  unsigned long inicio = millis();
-  while (millis() - inicio < 5000) {
-    while (gpsSerial.available())
-      gps.encode(gpsSerial.read());
-  }
-
-  Serial.println("Satelites: " + String(gps.satellites.value()));
-
-  if (gps.location.isValid()) {
-    float hdop = gps.hdop.hdop();
-    float precisao = hdop * 2.5;
-
-    Serial.println("[GPS]  FIX OK!");
-    Serial.println("[GPS]  Lat      : " + String(gps.location.lat(), 6));
-    Serial.println("[GPS]  Lon      : " + String(gps.location.lng(), 6));
-    Serial.println("[GPS]  Altitude : " + String(gps.altitude.meters(), 1) + " m");
-    Serial.println("[GPS]  Satelites: " + String(gps.satellites.value()));
-    Serial.println("[GPS]  HDOP     : " + String(hdop, 2));
-    Serial.println("[GPS]  Precisao : ~" + String(precisao, 1) + " m");
-
-    String payload = String(seq++) + "," +
-                     String(gps.location.lat(), 6) + "," +
-                     String(gps.location.lng(), 6) + "," +
-                     String(gps.satellites.value()) + "," +
-                     String(hdop, 2) + ",OK";
-
-    Serial.println("[LORA] Enviando payload...");
-    Serial.println("[LORA] >> " + payload);
-
-    CommandResponse r = lorawan.sendT(1, payload.c_str());
-    if (r == CommandResponse::OK)
-      Serial.println("[LORA] Transmissao: SUCESSO ✓");
-    else
-      Serial.println("[LORA] Transmissao: FALHOU ✗");
-
-  } else {
-    Serial.println("[GPS]  Sem fix — enviando status NOFIX");
-
-    String payload = String(seq++) + ",0,0," +
-                     String(gps.satellites.value()) + ",99.99,NOFIX";
-
-    Serial.println("[LORA] >> " + payload);
-    CommandResponse r = lorawan.sendT(1, payload.c_str());
-    if (r == CommandResponse::OK)
-      Serial.println("[LORA] Transmissao: SUCESSO ✓");
-    else
-      Serial.println("[LORA] Transmissao: FALHOU ✗");
-  }
-
-  Serial.println("[INFO] Aguardando proximo ciclo (10s)...");
-  delay(10000);
-}
-
-```
-
-### Modulo de Bateria
-
-<img src="/images/carregador.jpg" width="80%" height="80%" alt= "Bateria">
+### Lógica de cada nó
+ 
+- **Coleira:** amostra o GPS, monta o payload com `TTL_INICIAL` configurado e transmite a cada ciclo (padrão de campo: 3–4 min; reduza para 15–30s durante testes de bancada)
+- **Repetidor:** recebe → descarta se já retransmitiu aquele `(nodeId, seq)` → decrementa `ttl` → descarta se `ttl = 0` → aguarda backoff aleatório (100–500ms) → retransmite (broadcast)
+- **Gateway:** recebe o pacote final → calcula `hop_count = TTL_INICIAL_CONHECIDO - ttl` → monta JSON → envia por HTTP à Ubidots
 ---
  
-## 📡 Protocolo de Comunicação
+## ☁️ Configuração da Nuvem (Ubidots)
  
-- **Tecnologia:** LoRa P2P (sem stack LoRaWAN)
-- **Frequência:** 902–928 MHz
-- **Fator de Espalhamento (SF):** SF7–SF12 (configurável)
-- **Intervalo de transmissão:** ~16 segundos (coleira)
-- **Payload:** formato CSV compacto → `seq,lat,lon,sat,hdop,rssi,snr`
+1. Crie uma conta em [ubidots.com](https://ubidots.com) (plano educacional/gratuito)
+2. Crie um **Device** (ex.: `boi_01`)
+3. Crie as variáveis: `position` (contexto `lat`/`lng`), `rssi`, `snr`, `hop_count`, `seq`, `sat`, `hdop`, `gps_fix`
+4. No firmware do Gateway, configure:
+```cpp
+   const char* ubidotsToken = "SEU_TOKEN_UBIDOTS";
+   const char* deviceLabel  = "boi_01";
+```
+5. Monte o dashboard com um widget de mapa (variável `position`) e gráficos de linha para `rssi`/`snr`
+6. Configure eventos/alertas na própria plataforma para geofencing e perda de contato (heartbeat)
 ---
  
-## 💾 Banco de Dados
+## 🗺️ Funcionalidades
  
-Banco SQLite local em `/home/pi/rastreio.db` com duas tabelas:
- 
-### Tabela `pacotes`
-```sql
-CREATE TABLE pacotes (
-    id      INTEGER PRIMARY KEY AUTOINCREMENT,
-    seq     INTEGER,
-    lat     REAL,
-    lon     REAL,
-    sat     INTEGER,
-    hdop    REAL,
-    rssi    INTEGER,
-    snr     INTEGER,
-    ts_gw   TEXT,
-    alerta  INTEGER DEFAULT 0
-);
-```
- 
-### Tabela `alertas`
-```sql
-CREATE TABLE alertas (
-    id    INTEGER PRIMARY KEY AUTOINCREMENT,
-    tipo  TEXT,        -- 'FUGA' ou 'PERDA_CONTATO'
-    lat   REAL,
-    lon   REAL,
-    seq   INTEGER,
-    ts    TEXT
-);
-```
- 
----
- 
-## 🗺️ Funcionalidades Implementadas
- 
-### ✅ Comunicação LoRa P2P
-- Coleira transmite payload a cada ~16s
-- Estação Base recebe, parseia e encaminha via HTTP POST para o Node-RED
-### ✅ Armazenamento Local (Offline-First)
-- Todos os pacotes recebidos são persistidos no SQLite local
-- Sistema continua operando sem internet
-### ✅ Painel de Visualização (Worldmap)
-- Mapa atualizado a cada 10 segundos com a posição da coleira
-- Marcador verde = dentro do geofence | Marcador vermelho = fuga detectada
-- Popup com seq, satélites, RSSI, SNR e timestamp
-### ✅ Geofencing Local
-- Polígono virtual (retângulo) definido na Estação Base
-- Quando coordenada válida (GPS com fix) está fora do polígono → `alerta = 1`
-- Registro automático na tabela `alertas` com tipo `FUGA`
-### ✅ Detecção de Perda de Contato (Heartbeat)
-- Monitor verifica a cada 60s o timestamp do último pacote
-- Se ausência > 48s (3 intervalos) → alerta `PERDA_CONTATO` registrado
-- Salva última posição conhecida e horário do último pacote
+### ✅ Comunicação LoRa P2P com retransmissão multi-hop
+- Coleira transmite periodicamente; repetidores encaminham salto a salto até o Gateway
+- Deduplicação por `(nodeId, seq)` e controle de saltos por TTL evitam loops e retransmissões redundantes
+### ✅ Gateway com envio direto à nuvem
+- Sem dependência de Raspberry Pi ou Node-RED — o próprio ESP32 do Gateway envia via HTTP à Ubidots
+### ⏳ Geofencing e perda de contato (nuvem)
+- A ser configurado como regras de evento na Ubidots, a partir dos dados recebidos
+### ⏳ Painel de visualização
+- Dashboard Ubidots com mapa em tempo real, RSSI/SNR e hop_count
 ---
  
 ## 📂 Estrutura do Repositório
@@ -377,17 +131,17 @@ CREATE TABLE alertas (
 TCC_Rosialdo/
 ├── firmware/
 │   ├── coleira/
-│   │   └── coleira.ino        # Firmware do nó embarcado (ESP32 + GPS + LoRa)
-│   └── base/
-│       └── base.ino           # Firmware da estação base (ESP32 + LoRa + WiFi)
-├── nodered/
-│   └── flows.json             # Export do flow do Node-RED
-├── banco/
-│   └── schema.sql             # Schema do banco SQLite
+│   │   └── coleira.ino
+│   ├── repetidor/
+│   │   └── repetidor.ino
+│   └── gateway/
+│       └── gateway.ino
 ├── docs/
-│   ├── TCC_2.pdf              # Arquivo do TCC 2
+│   └── TCC_2.pdf
 └── README.md
 ```
+ 
+*(as pastas `nodered/` e `banco/` da versão anterior foram removidas — não existe mais processamento local na Estação Base)*
  
 ---
  
@@ -398,77 +152,60 @@ TCC_Rosialdo/
 - Arduino IDE com suporte ao ESP32
 - Biblioteca `RoboCore_SMW_SX1276M0`
 - Biblioteca `TinyGPS++`
-- Raspberry Pi com Node-RED instalado
-- Node-RED packages: `node-red-contrib-web-worldmap`, `node-red-node-sqlite`
+- Conta na Ubidots com um device configurado (veja seção acima)
 ### 2. Firmware da Coleira
  
-1. Abre `firmware/coleira/coleira.ino` no Arduino IDE
-2. Conecta o ESP32 via USB
-3. Carrega o firmware
-### 3. Firmware da Estação Base
+1. Abra `firmware/coleira/coleira.ino`
+2. Ajuste `NODE_ID` e `TTL_INICIAL` se necessário
+3. Carregue no ESP32 da coleira
+### 3. Firmware do(s) Repetidor(es)
  
-1. Abre `firmware/base/base.ino` no Arduino IDE
-2. Atualiza as credenciais WiFi e IP do Raspberry Pi:
+1. Abra `firmware/repetidor/repetidor.ino`
+2. Carregue o mesmo firmware em cada ESP32 que atuará como repetidor
+### 4. Firmware do Gateway
+ 
+1. Abra `firmware/gateway/gateway.ino`
+2. Atualize as credenciais de Wi-Fi e o token/device da Ubidots:
 ```cpp
-const char* ssid = "SUA_REDE";
-const char* password = "SUA_SENHA";
-const char* serverURL = "http://<IP_RASP>:1880/dados";
+   const char* ssid = "SUA_REDE";
+   const char* password = "SUA_SENHA";
+   const char* ubidotsToken = "SEU_TOKEN_UBIDOTS";
+   const char* deviceLabel  = "boi_01";
 ```
-3. Carrega o firmware no ESP32 da base
-### 4. Configuração do Raspberry Pi
+3. Confirme que `TTL_INICIAL_CONHECIDO` bate com o `TTL_INICIAL` usado na coleira
+4. Carregue no ESP32 do Gateway
+### 5. Ordem de testes recomendada
  
-```bash
-# Instalar Node-RED (se não tiver)
-bash <(curl -sL https://raw.githubusercontent.com/node-red/linux-installers/master/deb/update-nodejs-and-nodered)
- 
-# Instalar pacotes necessários
-cd ~/.node-red
-npm install node-red-contrib-web-worldmap
-npm install node-red-node-sqlite
- 
-# Criar banco de dados
-sqlite3 /home/pi/rastreio.db < banco/schema.sql
- 
-# Iniciar Node-RED
-node-red-start
-```
- 
-### 5. Importar o Flow no Node-RED
- 
-1. Acessa `http://<IP_RASP>:1880`
-2. Menu → Import → cola o conteúdo de `nodered/flows.json`
-3. Clica **Deploy**
-### 6. Acessar o Painel
- 
-```
-http://<IP_RASP>:1880/worldmap
-```
- 
+1. Bancada, sem GPS real (coordenadas fixas) — valida o protocolo multi-hop (TTL, dedup, backoff)
+2. Bancada com GPS real
+3. Confirma chegada dos dados no painel Ubidots
+4. Campo, curta distância, com um repetidor real
+5. Campo, cenário real (ensaios da Seção 4.2 do TCC)
 ---
  
 ## 📊 Perguntas de Pesquisa
  
 | ID | Pergunta | Status |
 |---|---|---|
-| PP01 | Viabilidade da arquitetura offline-first para coleta e armazenamento contínuo | ✅ Implementado |
-| PP02 | Cobertura efetiva do enlace LoRa P2P em ambiente rural (RSSI, SNR, PDR) | ⏳ Em teste |
-| PP03 | Geofencing e detecção de perda de contato em modo offline-first | ✅ Implementado |
-| PP04 | Desempenho temporal do ciclo (TTFF do GPS, latência até persistência local) | ⏳ Em teste |
+| PP01 | Viabilidade da retransmissão multi-hop para entrega confiável até o Gateway | ⏳ Em desenvolvimento |
+| PP02 | Cobertura efetiva de cada enlace da cadeia (RSSI, SNR, PDR) | ⏳ Em teste |
+| PP03 | Geofencing e perda de contato processados na nuvem | ⏳ Em desenvolvimento |
+| PP04 | Desempenho temporal de ponta a ponta (TTFF, latência multi-hop, latência até a nuvem) | ⏳ Em teste |
  
 ---
  
 ## 🔭 Trabalhos Futuros
  
-- Configuração do Raspberry Pi como Access Point WiFi autônomo (sem roteador externo)
-- Interface web completa com histórico de trilha e exportação CSV
-- Suporte a múltiplos nós simultâneos
-- Estimativa de autonomia da bateria da coleira
+- Leitura de nível de bateria na coleira e nos repetidores
+- Interface web adicional além do dashboard Ubidots (histórico de trilha, exportação CSV)
+- Suporte a múltiplos nós sensores simultâneos
+- Uso do recurso de Channel Activity Detection (CAD) do SX1276 para reduzir colisões entre repetidores
 - Testes de alcance em campo aberto (propriedade rural em Roraima)
 ---
  
 ## 📚 Referências
  
-
+Ver lista completa no TCC (`docs/TCC_2.pdf`).
  
 ## 📄 Licença
  
@@ -476,6 +213,5 @@ Este projeto é desenvolvido para fins acadêmicos — UFRR, 2026.
  
 ---
  
-> 📬 Contato: rosialdovidinho3@gmail.com  
+> 📬 Contato: rosialdovidinho3@gmail.com
 > 🔗 Repositório: https://github.com/Rosialdo/TCC_Rosialdo.git
- 
