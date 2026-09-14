@@ -9,11 +9,11 @@ HardwareSerial LoRaSerial(2);
 SMW_SX1276M0 lorawan(LoRaSerial);
 
 // --- Wi-Fi ---
-const char* ssid = "SUA_REDE";
-const char* password = "SUA_SENHA";
+const char* ssid = "VICENTE";
+const char* password = "R$qv2020";
 
 // --- Ubidots ---
-const char* ubidotsToken = "SEU_TOKEN_UBIDOTS";
+const char* ubidotsToken = "BBUS-wd3WMuUL4QbqOkm5maSMvF03WlqYWJ";
 const char* deviceLabel  = "boi_01";
 String serverURL = "https://industrial.api.ubidots.com/api/v1.6/devices/" + String(deviceLabel);
 
@@ -21,6 +21,34 @@ String serverURL = "https://industrial.api.ubidots.com/api/v1.6/devices/" + Stri
 // usado no firmware da coleira). Usado apenas para calcular quantos saltos
 // o pacote percorreu, como metadado de diagnostico (PP02/PP04).
 #define TTL_INICIAL_CONHECIDO 5
+
+// --- Deduplicacao ---
+// O LoRa e broadcast: o Gateway pode ouvir tanto a transmissao original de
+// um no sensor quanto a retransmissao de um repetidor, principalmente em
+// testes de bancada onde tudo esta proximo. Esse buffer garante que cada
+// (nodeId, seq) seja enviado a nuvem apenas uma vez. Como a copia retransmitida
+// chega com um atraso extra (backoff do repetidor), a copia direta/de menor
+// numero de saltos costuma chegar primeiro e e a que acaba sendo enviada.
+#define BUFFER_SIZE_GW 20
+struct PacoteVistoGW {
+  int nodeId;
+  int seq;
+};
+PacoteVistoGW vistosGW[BUFFER_SIZE_GW];
+int indiceBufferGW = 0;
+
+bool jaEnviado(int nodeId, int seq) {
+  for (int i = 0; i < BUFFER_SIZE_GW; i++) {
+    if (vistosGW[i].nodeId == nodeId && vistosGW[i].seq == seq) return true;
+  }
+  return false;
+}
+
+void marcarEnviado(int nodeId, int seq) {
+  vistosGW[indiceBufferGW].nodeId = nodeId;
+  vistosGW[indiceBufferGW].seq = seq;
+  indiceBufferGW = (indiceBufferGW + 1) % BUFFER_SIZE_GW;
+}
 
 String hexParaTexto(String hex) {
   String resultado = "";
@@ -44,7 +72,7 @@ String extraiValor(String texto, String chave) {
 void setup() {
   Serial.begin(115200);
   Serial.println("========================================");
-  Serial.println("   NO GATEWAY v2.0");
+  Serial.println("   NO GATEWAY v2.1");
   Serial.println("========================================");
 
   WiFi.begin(ssid, password);
@@ -107,8 +135,20 @@ void loop() {
         String hdop   = dados.substring(c6 + 1, c7);
         String status = dados.substring(c7 + 1);
 
-        int hopCount = TTL_INICIAL_CONHECIDO - ttl.toInt();
-        int gpsFix = status.startsWith("OK") ? 1 : 0;
+        int nodeIdInt = nodeId.toInt();
+        int seqInt    = seq.toInt();
+        int hopCount  = TTL_INICIAL_CONHECIDO - ttl.toInt();
+        int gpsFix    = status.startsWith("OK") ? 1 : 0;
+
+        Serial.println("[RX] no=" + nodeId + " seq=" + seq + " ttl_recebido=" + ttl + " hops=" + String(hopCount));
+
+        // Descarta se esse (nodeId, seq) ja foi enviado a nuvem por outro caminho
+        if (jaEnviado(nodeIdInt, seqInt)) {
+          Serial.println("[SKIP] no=" + nodeId + " seq=" + seq + " ja enviado a nuvem (chegou por outro caminho, hops=" + String(hopCount) + ")");
+          rssi = "0"; snr = "0";
+          continue;
+        }
+        marcarEnviado(nodeIdInt, seqInt);
 
         String json = "{";
         json += "\"position\":{\"value\":1,\"context\":{\"lat\":" + lat + ",\"lng\":" + lon + "}},";
@@ -121,7 +161,6 @@ void loop() {
         json += "\"gps_fix\":" + String(gpsFix);
         json += "}";
 
-        Serial.println("[RX] no=" + nodeId + " seq=" + seq + " ttl_recebido=" + ttl + " hops=" + String(hopCount));
         Serial.println("[HTTP] Enviando: " + json);
 
         if (WiFi.status() == WL_CONNECTED) {
