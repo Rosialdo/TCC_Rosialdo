@@ -47,3 +47,5 @@ Para documentação de hardware, os pinos configurados em código:
 | GPS RX | GPIO 27 | Somente Coleira |
 | GPS TX | GPIO 26 | Somente Coleira |
 
+# Configuração do Ambiente na Ubidots
+
