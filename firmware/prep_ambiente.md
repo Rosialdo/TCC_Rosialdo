@@ -70,3 +70,44 @@ Ambiente de referência: **Ubidots STEM (plano gratuito)**.
 > **Limite do plano STEM:** 4.000 *dots* por dia (cada valor de variável
 > atualizado = 1 dot, somando toda a conta). Isso definiu boa parte do
 > formato do payload — ver Seção 2.
+
+
+## 2. Estrutura de dados enviada pelo Gateway
+
+O device criado na Ubidots (label `boi_01`) recebe as seguintes variáveis por
+pacote, via HTTP POST para
+`https://industrial.api.ubidots.com/api/v1.6/devices/boi_01`:
+
+| Variável | Tipo de envio | Conta como dot? | Observação |
+|---|---|---|---|
+| `position` | Variável (lat/lng) + `context` | Sim (1 dot) | `seq`, `sat`, `hdop`, `gps_fix` e `hop_count` viajam dentro do `context` — não contam dot extra, pois contexto é metadado |
+| `rssi` | Variável | Sim (1 dot) | Força do sinal recebido no último salto |
+| `snr` | Variável | Sim (1 dot) | Relação sinal-ruído do último salto |
+| `geofence_alert` | Variável | Só quando muda de valor | Calculado localmente no Gateway (ver Seção 5) |
+| `heartbeat_alert` | Variável | Só quando muda de valor | Calculado localmente no Gateway (ver Seção 5) |
+
+Payload normal: **3 dots por pacote** (contra 9 dots de uma versão anterior
+que expunha cada campo como variável própria). Com o intervalo de campo de 3
+minutos (Seção 4.2 do TCC), isso dá ~480 pacotes/dia × 3 = **1.440 dots/dia**,
+bem dentro da cota de 4.000/dia mesmo somando os alertas.
+
+Exemplo de payload principal enviado pelo Gateway:
+
+```json
+{
+  "position": {
+    "value": 1,
+    "context": {
+      "lat": 2.805925,
+      "lng": -60.748853,
+      "seq": 2013,
+      "sat": 10,
+      "hdop": 0.82,
+      "gps_fix": 1,
+      "hop_count": 0
+    }
+  },
+  "rssi": -36,
+  "snr": 29
+}
+```
