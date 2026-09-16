@@ -2,6 +2,7 @@
 #include <HardwareSerial.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include "secrets.h"
 
 HardwareSerial LoRaSerial(2);
 #define RXD2 16
@@ -9,11 +10,11 @@ HardwareSerial LoRaSerial(2);
 SMW_SX1276M0 lorawan(LoRaSerial);
 
 // --- Wi-Fi ---
-const char* ssid = "VICENTE";
-const char* password = "R$qv2020";
+const char* ssid = SECRET_SSID;
+const char* password = SECRET_PASSWORD;
 
 // --- Ubidots ---
-const char* ubidotsToken = "BBUS-3GJLMpJ8iULVSGYQ8U5OViwXBEyaJd";
+const char* ubidotsToken = SECRET_UBIDOTS_TOKEN;
 const char* deviceLabel  = "boi_01";
 String serverURL = "https://industrial.api.ubidots.com/api/v1.6/devices/" + String(deviceLabel);
 

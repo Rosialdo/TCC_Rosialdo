@@ -1,0 +1,18 @@
+# --- Credenciais (nunca commitar) ---
+# Cada firmware que precisar de WiFi/token tem seu proprio secrets.h local.
+# Só o secrets.h.example (com placeholders) fica versionado.
+secrets.h
+firmware/*/secrets.h
+ 
+# --- Artefatos de build do Arduino IDE ---
+build/
+*.hex
+*.elf
+*.bin
+*.map
+ 
+# --- Arquivos de sistema/editor ---
+.DS_Store
+*~
+.vscode/
+ 
