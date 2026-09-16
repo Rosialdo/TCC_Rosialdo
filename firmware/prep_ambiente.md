@@ -54,3 +54,19 @@ alertas do sistema de rastreio (Coleira → Repetidor(es) → Gateway → Ubidot
 Ambiente de referência: **Ubidots STEM (plano gratuito)**.
  
 ---
+
+## 1. Criação da conta e do token
+ 
+1. Crie uma conta em [ubidots.com](https://ubidots.com) selecionando o plano
+   **STEM** (gratuito, voltado a projetos pessoais/educacionais)
+2. Após o login, vá em **API Credentials** (ícone de perfil → API Credentials,
+   ou **Dev Center → Credentials**)
+3. Copie o **Default Token** (ou gere um novo em "+ Token") — esse valor vai
+   no firmware do Gateway, na constante `ubidotsToken`
+4. **Atenção:** esse token dá acesso total de escrita/leitura à conta. Não
+   deve ser commitado em repositório público nem compartilhado em texto
+   aberto. Se algum token vazar, revogue e gere um novo imediatamente pelo
+   mesmo painel
+> **Limite do plano STEM:** 4.000 *dots* por dia (cada valor de variável
+> atualizado = 1 dot, somando toda a conta). Isso definiu boa parte do
+> formato do payload — ver Seção 2.
