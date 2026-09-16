@@ -20,3 +20,30 @@ O Arduino IDE não vem com suporte ao ESP32 por padrão — precisa ser adiciona
 ```
    https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
 ```
+3. Vá em **Tools → Board → Boards Manager**
+4. Busque por **"esp32"** e instale o pacote **"esp32 by Espressif Systems"**
+5. Aguarde o download (pode demorar alguns minutos, é um pacote grande — inclui o toolchain de compilação completo)
+6. Vá em **Tools → Board → ESP32 Arduino → ESP32 Dev Module** Selecione essa placa como padrão
+
+## 3. Bibliotecas necessárias
+ 
+| Biblioteca | Onde é usada | Como instalar |
+|---|---|---|
+| `RoboCore_SMW_SX1276M0` | Coleira, Repetidor, Gateway (todas usam o módulo LoRa) | Disponível direto no Library Manager: Sketch → Include Library → Manage Libraries → buscar "RoboCore_SMW_SX1276M0" → Install |
+| `TinyGPS++` | Somente na Coleira (leitura do GPS NEO-6M) | Disponível direto no Library Manager: **Sketch → Include Library → Manage Libraries** → buscar "TinyGPSPlus" → Install |
+| `WiFi.h` | Somente no Gateway | Já vem embutida no core do ESP32 — não precisa instalar |
+| `HTTPClient.h` | Somente no Gateway | Já vem embutida no core do ESP32 — não precisa instalar |
+| `HardwareSerial.h` | Todas | Já vem embutida no core do ESP32 — não precisa instalar |
+
+## 4. Pinagem usada nos firmwares
+ 
+Para documentação de hardware, os pinos configurados em código:
+ 
+| Sinal | Pino | Usado em |
+|---|---|---|
+| LoRa RX (RXD2) | GPIO 16 | Todas as placas |
+| LoRa TX (TXD2) | GPIO 17 | Todas as placas |
+| LoRa Reset | GPIO 5 | Todas as placas |
+| GPS RX | GPIO 27 | Somente Coleira |
+| GPS TX | GPIO 26 | Somente Coleira |
+
