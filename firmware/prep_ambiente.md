@@ -140,3 +140,34 @@ Exemplo de payload principal enviado pelo Gateway:
    - Escolha o **tipo** (Number para todos esses campos)
    - Repita o processo — uma coluna por vez — para os 5 campos
 
+## 4. Configuração dos Eventos (alertas por e-mail)
+
+O plano STEM **não inclui** os gatilhos nativos de **Geofence** e
+**Inactivity** (recursos pagos). Por isso, `geofence_alert` e
+`heartbeat_alert` são calculados localmente no firmware do Gateway (ver
+Seção 5) e enviados como variáveis simples, compatíveis com o gatilho
+genérico **Value**, disponível no plano gratuito.
+
+### Evento 1 — Fuga Detectada
+
+1. **Data → Events** → `+` → vincule ao device `boi_01`
+2. **+ add trigger** → tipo **Value** → variável `geofence_alert` →
+   condição **igual a 1**
+3. **+ add action** → **Email** → assunto "Fuga Detectada — Boi 01" → corpo
+   simples
+4. Salve o evento como "Fuga Detectada"
+
+### Evento 2 — Perda de Contato
+
+1. Novo evento, mesmo device `boi_01`
+2. **+ add trigger** → tipo **Value** → variável `heartbeat_alert` →
+   condição **igual a 1**
+3. **+ add action** → **Email** → assunto "Perda de Contato — Boi 01"
+4. Salve o evento como "Perda de Contato"
+
+> **Observação:** a variável `heartbeat_alert` só passa a existir na
+> Ubidots (e, portanto, só aparece na lista de seleção do evento) depois que
+> o Gateway a envia pela primeira vez — o que só ocorre quando uma perda de
+> contato real é detectada. Se a variável ainda não aparecer, force uma
+> perda de contato de teste (desligue a coleira por um tempo maior que
+> `LIMIAR_PERDA_CONTATO_MS`) antes de tentar criar o evento.
