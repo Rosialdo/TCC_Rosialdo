@@ -111,3 +111,32 @@ Exemplo de payload principal enviado pelo Gateway:
   "snr": 29
 }
 ```
+
+## 3. Criação do Dashboard
+
+1. **Data → Dashboards** → ícone de dashboard (canto superior esquerdo) →
+   template **Blank** → nomeie (ex.: "Rastreio Boi 01")
+
+2. **Widget de mapa**
+   - `+` (canto superior direito) → **Map** → **+ Add marker group** →
+     selecione o device `boi_01`
+   - A Ubidots detecta automaticamente a variável `position` e plota o pino
+     usando `lat`/`lng` do contexto
+
+3. **Gráfico de RSSI/SNR**
+   - `+` → **Line Chart** → selecione as variáveis `rssi` e `snr` juntas
+     (mesmo gráfico)
+
+4. **Tabela com os campos de diagnóstico** (`seq`, `sat`, `hdop`, `gps_fix`,
+   `hop_count` — os que vivem dentro do contexto de `position`)
+   - `+` → **Values Table** (não confundir com *Devices Table*)
+   - `+ add column` → selecione o tipo **Context** (não *Value*)
+   - Selecione o device `boi_01` e a variável `position` — só depois dessa
+     seleção os campos seguintes aparecem
+   - Preencha o **nome da coluna** (ex.: "seq")
+   - No campo de texto livre **context key**, digite exatamente o nome do
+     campo tal como está no JSON: `seq`, `sat`, `hdop`, `gps_fix` ou
+     `hop_count`
+   - Escolha o **tipo** (Number para todos esses campos)
+   - Repita o processo — uma coluna por vez — para os 5 campos
+
