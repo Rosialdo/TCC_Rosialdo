@@ -171,3 +171,18 @@ genérico **Value**, disponível no plano gratuito.
 > contato real é detectada. Se a variável ainda não aparecer, force uma
 > perda de contato de teste (desligue a coleira por um tempo maior que
 > `LIMIAR_PERDA_CONTATO_MS`) antes de tentar criar o evento.
+
+## 5. Lógica calculada no Gateway (não na nuvem)
+
+Como o plano STEM não oferece Geofence/Inactivity nativos, o `gateway.ino`
+implementa:
+
+- **Geofencing:** algoritmo *ray-casting* (ponto-em-polígono) rodando a cada
+  pacote recebido com fix de GPS válido, comparando `lat`/`lon` contra um
+  polígono definido em `poligonoLat[]` / `poligonoLon[]`
+- **Heartbeat / perda de contato:** checagem periódica (a cada
+  `INTERVALO_CHECK_HEARTBEAT_MS`) comparando o tempo desde o último pacote
+  recebido contra `LIMIAR_PERDA_CONTATO_MS` (valor de campo: 3× o intervalo
+  de transmissão do nó)
+- Ambos os alertas só são reenviados à nuvem **quando o valor muda de
+  estado**, para não consumir a cota diária de dots a cada pacote
