@@ -186,3 +186,16 @@ implementa:
   de transmissão do nó)
 - Ambos os alertas só são reenviados à nuvem **quando o valor muda de
   estado**, para não consumir a cota diária de dots a cada pacote
+
+
+## 6. Boas práticas / pontos de atenção
+
+- Trocar de conta Ubidots para contornar a cota de dots é uma saída válida
+  pontualmente, mas não deve virar rotina — além de estar fora do espírito
+  de *fair use* do plano STEM, fragmenta o histórico de dados entre contas
+  diferentes, dificultando a análise posterior (PP02/PP04)
+- Dashboard e Eventos são configurados **por conta** — ao trocar de conta,
+  é preciso remontar ambos
+- Qualquer redução temporária de intervalos (transmissão ou limiar de
+  heartbeat) para acelerar testes de bancada deve ser revertida para os
+  valores de campo (Seção 4.2 do TCC) antes de qualquer ensaio real
