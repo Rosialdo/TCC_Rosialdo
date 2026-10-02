@@ -51,7 +51,7 @@ void setup() {
   lorawan.set_JoinMode(SMW_SX1276M0_JOIN_MODE_P2P);
   delay(2000);
 
-  randomSeed(analogRead(0)); // semente para o backoff aleatório
+  randomSeed(esp_random()); // semente para o backoff aleatório (RNG de hardware do ESP32)
 
   Serial.println("[INFO] Repetidor pronto — aguardando pacotes");
 }
@@ -103,7 +103,9 @@ void loop() {
         delay(atraso);
 
         Serial.println("[FWD] " + novoPayload + " (backoff " + String(atraso) + "ms)");
-        lorawan.sendT(1, novoPayload.c_str());
+        CommandResponse r = lorawan.sendT(1, novoPayload.c_str());
+        if (r != CommandResponse::OK)
+          Serial.println("[ERRO] Falha ao retransmitir no=" + String(nodeId) + " seq=" + String(seq));
       }
     }
   }

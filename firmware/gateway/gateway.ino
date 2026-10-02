@@ -102,15 +102,20 @@ void enviarGeofenceAlert(int status) {
 // OBS: assume um unico no sensor ativo (NODE_ID=1). Para multiplos nos
 // simultaneos, isso precisaria virar um array indexado por nodeId.
 #define INTERVALO_TRANSMISSAO_NO_MS 180000UL                         // deve bater com o INTERVALO_TRANSMISSAO_MS da coleira
-#define LIMIAR_PERDA_CONTATO_MS 180000UL //(3UL * INTERVALO_TRANSMISSAO_NO_MS)   // 3 intervalos
+#define LIMIAR_PERDA_CONTATO_MS (3UL * INTERVALO_TRANSMISSAO_NO_MS)          // 3 intervalos
 #define INTERVALO_CHECK_HEARTBEAT_MS 30000UL                         // verifica a cada 30s
 
 unsigned long ultimoContatoMillis = 0;
 unsigned long ultimoCheckHeartbeatMillis = 0;
 bool primeiroPacoteRecebido = false;
 bool alertaPerdaContatoAtivo = false;
+bool temPosicaoConhecida = false;   // so vira true apos o primeiro pacote com fix valido
 String ultimaLatConhecida = "0";
 String ultimaLonConhecida = "0";
+
+// RSSI/SNR do ultimo pacote, globais porque a linha com rssi/snr e a linha
+// RECVB podem chegar em iteracoes diferentes do loop().
+String rssi = "0", snr = "0";
 
 void enviarHeartbeat(int status) {
   if (WiFi.status() != WL_CONNECTED) {
@@ -118,9 +123,13 @@ void enviarHeartbeat(int status) {
     return;
   }
 
+  // A ultima posicao so e reenviada se houver uma posicao real conhecida;
+  // caso contrario o mapa receberia (0,0).
   String json = "{";
-  json += "\"heartbeat_alert\":" + String(status) + ",";
-  json += "\"position\":{\"value\":1,\"context\":{\"lat\":" + ultimaLatConhecida + ",\"lng\":" + ultimaLonConhecida + "}}";
+  json += "\"heartbeat_alert\":" + String(status);
+  if (temPosicaoConhecida) {
+    json += ",\"position\":{\"value\":1,\"context\":{\"lat\":" + ultimaLatConhecida + ",\"lng\":" + ultimaLonConhecida + "}}";
+  }
   json += "}";
 
   HTTPClient http;
@@ -191,8 +200,6 @@ void setup() {
 }
 
 void loop() {
-  String rssi = "0", snr = "0";
-
   while (LoRaSerial.available()) {
     String raw = LoRaSerial.readStringUntil('\n');
     raw.trim();
@@ -245,8 +252,12 @@ void loop() {
         // radio esta vivo e o contato com o no sensor continua.
         ultimoContatoMillis = millis();
         primeiroPacoteRecebido = true;
-        ultimaLatConhecida = lat;
-        ultimaLonConhecida = lon;
+        // Pacotes NOFIX trazem 0,0 — nao sobrescrevem a ultima posicao real.
+        if (gpsFix == 1) {
+          ultimaLatConhecida = lat;
+          ultimaLonConhecida = lon;
+          temPosicaoConhecida = true;
+        }
 
         if (alertaPerdaContatoAtivo) {
           Serial.println("[INFO] Contato reestabelecido apos alerta de perda de contato.");
@@ -287,9 +298,15 @@ void loop() {
         // porque contexto e metadado, nao variavel. Isso mantem o consumo
         // diario de dots bem abaixo do limite de 4.000/dia do plano STEM,
         // mesmo em operacao continua no intervalo de campo (3-4 min).
+        //
+        // Sem fix, lat/lng sao omitidos do contexto (em vez de 0,0, que o
+        // mapa plotaria no Oceano Atlantico). O dot continua registrando
+        // seq/gps_fix/hop_count para o calculo de PDR.
         String json = "{";
         json += "\"position\":{\"value\":1,\"context\":{";
-        json += "\"lat\":" + lat + ",\"lng\":" + lon + ",";
+        if (gpsFix == 1) {
+          json += "\"lat\":" + lat + ",\"lng\":" + lon + ",";
+        }
         json += "\"seq\":" + seq + ",";
         json += "\"sat\":" + sat + ",";
         json += "\"hdop\":" + hdop + ",";

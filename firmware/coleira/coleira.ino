@@ -22,6 +22,9 @@ TinyGPSPlus gps;
 // campo antes dos ensaios reais descritos na Secao 4.2.
 #define INTERVALO_TRANSMISSAO_MS 180000UL
 
+// Idade maxima (ms) de uma coordenada para ser considerada fix atual.
+#define IDADE_MAX_FIX_MS 2000UL
+
 int seq = 0;
 
 void printSeparador() {
@@ -70,7 +73,10 @@ void loop() {
   // nodeId,seq,ttl,lat,lon,sat,hdop,status
   String payload;
 
-  if (gps.location.isValid()) {
+  // isValid() continua true para sempre apos o primeiro fix; age() garante
+  // que a coordenada foi atualizada nesta janela de leitura, e nao e uma
+  // posicao antiga de quando o GPS ainda tinha sinal.
+  if (gps.location.isValid() && gps.location.age() < IDADE_MAX_FIX_MS) {
     float hdop = gps.hdop.hdop();
     float precisao = hdop * 2.5;
 
