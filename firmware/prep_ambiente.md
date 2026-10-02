@@ -62,7 +62,8 @@ Ambiente de referência: **Ubidots STEM (plano gratuito)**.
 2. Após o login, vá em **API Credentials** (ícone de perfil → API Credentials,
    ou **Dev Center → Credentials**)
 3. Copie o **Default Token** (ou gere um novo em "+ Token") — esse valor vai
-   no firmware do Gateway, na constante `ubidotsToken`
+   no `firmware/gateway/secrets.h`, na macro `SECRET_UBIDOTS_TOKEN` (copie
+   o `secrets.h.example` para criar esse arquivo)
 4. **Atenção:** esse token dá acesso total de escrita/leitura à conta. Não
    deve ser commitado em repositório público nem compartilhado em texto
    aberto. Se algum token vazar, revogue e gere um novo imediatamente pelo

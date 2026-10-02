@@ -49,7 +49,8 @@ A arquitetura é composta por três camadas:
         ↓
 [Ubidots — plataforma de nuvem]
    → Armazena posicao, RSSI/SNR, hop_count, status do GPS
-   → Motor de regras: geofencing + perda de contato (heartbeat)
+   → Eventos (e-mail) sobre geofence_alert / heartbeat_alert,
+     calculados no proprio Gateway
    → Painel de visualizacao (mapa em tempo real)
 ```
  
@@ -95,21 +96,19 @@ nodeId,seq,ttl,lat,lon,sat,hdop,status
  
 - **Coleira:** amostra o GPS, monta o payload com `TTL_INICIAL` configurado e transmite a cada ciclo (padrão de campo: 3–4 min; reduza para 15–30s durante testes de bancada)
 - **Repetidor:** recebe → descarta se já retransmitiu aquele `(nodeId, seq)` → decrementa `ttl` → descarta se `ttl = 0` → aguarda backoff aleatório (100–500ms) → retransmite (broadcast)
-- **Gateway:** recebe o pacote final → calcula `hop_count = TTL_INICIAL_CONHECIDO - ttl` → monta JSON → envia por HTTP à Ubidots
+- **Gateway:** recebe o pacote final → descarta duplicatas `(nodeId, seq)` → calcula `hop_count = TTL_INICIAL_CONHECIDO - ttl` → calcula geofence (ray-casting) e heartbeat → monta JSON → envia por HTTP à Ubidots
 ---
  
 ## ☁️ Configuração da Nuvem (Ubidots)
  
 1. Crie uma conta em [ubidots.com](https://ubidots.com) (plano educacional/gratuito)
 2. Crie um **Device** (ex.: `boi_01`)
-3. Crie as variáveis: `position` (contexto `lat`/`lng`), `rssi`, `snr`, `hop_count`, `seq`, `sat`, `hdop`, `gps_fix`
-4. No firmware do Gateway, configure:
-```cpp
-   const char* ubidotsToken = "SEU_TOKEN_UBIDOTS";
-   const char* deviceLabel  = "boi_01";
-```
-5. Monte o dashboard com um widget de mapa (variável `position`) e gráficos de linha para `rssi`/`snr`
-6. Configure eventos/alertas na própria plataforma para geofencing e perda de contato (heartbeat)
+3. As variáveis são criadas automaticamente no primeiro envio do Gateway: `position` (com `lat`, `lng`, `seq`, `sat`, `hdop`, `gps_fix` e `hop_count` no *context*), `rssi`, `snr`, `geofence_alert` e `heartbeat_alert`
+4. Coloque o token em `firmware/gateway/secrets.h` (veja a seção *Como Reproduzir*)
+5. Monte o dashboard com um widget de mapa (variável `position`), gráfico de linha para `rssi`/`snr` e uma *Values Table* com os campos de contexto
+6. Crie eventos do tipo **Value** sobre `geofence_alert = 1` e `heartbeat_alert = 1`
+
+O passo a passo completo (cota de dots do plano STEM, dashboard e eventos) está em [`firmware/prep_ambiente.md`](firmware/prep_ambiente.md).
 ---
  
 ## 🗺️ Funcionalidades
@@ -119,10 +118,12 @@ nodeId,seq,ttl,lat,lon,sat,hdop,status
 - Deduplicação por `(nodeId, seq)` e controle de saltos por TTL evitam loops e retransmissões redundantes
 ### ✅ Gateway com envio direto à nuvem
 - Sem dependência de Raspberry Pi ou Node-RED — o próprio ESP32 do Gateway envia via HTTP à Ubidots
-### ⏳ Geofencing e perda de contato (nuvem)
-- A ser configurado como regras de evento na Ubidots, a partir dos dados recebidos
-### ⏳ Painel de visualização
-- Dashboard Ubidots com mapa em tempo real, RSSI/SNR e hop_count
+### ✅ Geofencing e perda de contato (calculados no Gateway)
+- Geofence por ray-casting (ponto-em-polígono) e heartbeat com limiar de 3× o intervalo de transmissão
+- Calculados no Gateway porque os gatilhos nativos de Geofence/Inactivity da Ubidots são pagos; os alertas só são enviados quando mudam de estado e disparam eventos por e-mail
+- O polígono atual é de teste (~50×50 m) — ainda falta definir o polígono real da propriedade
+### ✅ Painel de visualização
+- Dashboard Ubidots com mapa em tempo real, RSSI/SNR e tabela de diagnóstico (seq, sat, hdop, gps_fix, hop_count)
 ---
  
 ## 📂 Estrutura do Repositório
@@ -134,10 +135,15 @@ TCC_Rosialdo/
 │   │   └── coleira.ino
 │   ├── repetidor/
 │   │   └── repetidor.ino
-│   └── gateway/
-│       └── gateway.ino
+│   ├── gateway/
+│   │   ├── gateway.ino
+│   │   ├── secrets.h.example   # modelo de credenciais (copiar para secrets.h)
+│   │   └── secrets.h           # credenciais reais — ignorado pelo git
+│   └── prep_ambiente.md        # Arduino IDE, bibliotecas, pinagem e Ubidots
 ├── docs/
-│   └── TCC_2.pdf
+│   └── TCC 2 Rosialdo multi-hop.pdf
+├── images/                     # fotos do hardware
+├── LICENSE
 └── README.md
 ```
  
@@ -165,15 +171,16 @@ TCC_Rosialdo/
 ### 4. Firmware do Gateway
  
 1. Abra `firmware/gateway/gateway.ino`
-2. Atualize as credenciais de Wi-Fi e o token/device da Ubidots:
+2. Copie `secrets.h.example` para `secrets.h` (na mesma pasta) e preencha Wi-Fi e token da Ubidots:
 ```cpp
-   const char* ssid = "SUA_REDE";
-   const char* password = "SUA_SENHA";
-   const char* ubidotsToken = "SEU_TOKEN_UBIDOTS";
-   const char* deviceLabel  = "boi_01";
+   #define SECRET_SSID          "SUA_REDE"
+   #define SECRET_PASSWORD      "SUA_SENHA"
+   #define SECRET_UBIDOTS_TOKEN "SEU_TOKEN_UBIDOTS"
 ```
-3. Confirme que `TTL_INICIAL_CONHECIDO` bate com o `TTL_INICIAL` usado na coleira
-4. Carregue no ESP32 do Gateway
+   O `secrets.h` está no `.gitignore` — **nunca o commite**.
+3. Se necessário, ajuste `deviceLabel` no `gateway.ino` (padrão `boi_01`)
+4. Confirme que `TTL_INICIAL_CONHECIDO` e `INTERVALO_TRANSMISSAO_NO_MS` batem com `TTL_INICIAL` e `INTERVALO_TRANSMISSAO_MS` da coleira
+5. Carregue no ESP32 do Gateway
 ### 5. Ordem de testes recomendada
  
 1. Bancada, sem GPS real (coordenadas fixas) — valida o protocolo multi-hop (TTL, dedup, backoff)
@@ -189,7 +196,7 @@ TCC_Rosialdo/
 |---|---|---|
 | PP01 | Viabilidade da retransmissão multi-hop para entrega confiável até o Gateway | ⏳ Em desenvolvimento |
 | PP02 | Cobertura efetiva de cada enlace da cadeia (RSSI, SNR, PDR) | ⏳ Em teste |
-| PP03 | Geofencing e perda de contato processados na nuvem | ⏳ Em desenvolvimento |
+| PP03 | Geofencing e perda de contato (calculados no Gateway, alertas via Ubidots) | ⏳ Em teste |
 | PP04 | Desempenho temporal de ponta a ponta (TTFF, latência multi-hop, latência até a nuvem) | ⏳ Em teste |
  
 ---
@@ -205,11 +212,11 @@ TCC_Rosialdo/
  
 ## 📚 Referências
  
-Ver lista completa no TCC (`docs/TCC_2.pdf`).
+Ver lista completa no TCC ([`docs/TCC 2 Rosialdo multi-hop.pdf`](docs/TCC%202%20Rosialdo%20multi-hop.pdf)).
  
 ## 📄 Licença
  
-Este projeto é desenvolvido para fins acadêmicos — UFRR, 2026.
+Projeto acadêmico desenvolvido na UFRR (2026), distribuído sob a licença MIT — veja [`LICENSE`](LICENSE).
  
 ---
  
