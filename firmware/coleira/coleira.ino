@@ -72,7 +72,10 @@ void loop() {
   // nodeId,seq,ttl,lat,lon,sat,hdop,status
   String payload;
 
-  if (gps.location.isValid()) {
+  // isValid() continua true para sempre depois do primeiro fix (o TinyGPS++
+  // guarda a ultima posicao). age() garante que a posicao e recente; sem
+  // isso, ao perder o sinal a coleira repetiria a ultima posicao como "OK".
+  if (gps.location.isValid() && gps.location.age() < 5000) {
     float hdop = gps.hdop.hdop();
     float precisao = hdop * 2.5;
 

@@ -147,8 +147,14 @@ float distanciaAteBordaPoligono(float lat, float lon) {
 // forca o envio do primeiro valor real assim que chegar.
 int ultimoGeofenceAlert = -1;
 
-void enviarGeofenceAlert(int status) {
-  if (WiFi.status() != WL_CONNECTED) return;
+// Retorna true se a Ubidots aceitou o dot. Se falhar, o chamador NAO deve
+// atualizar ultimoGeofenceAlert, para que o envio seja tentado de novo no
+// proximo pacote (senao uma transicao, ex.: o retorno, se perde para sempre).
+bool enviarGeofenceAlert(int status) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[ERRO] WiFi desconectado, geofence_alert=" + String(status) + " nao enviado (sera reenviado no proximo pacote)");
+    return false;
+  }
   String json = "{\"geofence_alert\":" + String(status) + "}";
   HTTPClient http;
   http.begin(serverURL);
@@ -161,6 +167,7 @@ void enviarGeofenceAlert(int status) {
     Serial.println("[HTTP] Corpo da resposta (geofence): " + resposta);
   }
   http.end();
+  return code == 200 || code == 201;
 }
 
 // --- Heartbeat / Perda de Contato (calculado no proprio Gateway) ---
@@ -334,32 +341,49 @@ void loop() {
         // So calcula geofencing quando ha fix real; sem fix, lat/lon vem
         // como 0,0 (placeholder da coleira), o que seria erroneamente
         // interpretado como "fora da cerca" (0,0 fica no Oceano Atlantico).
-        int geofenceAlert = 0;
+        // Estado atual (antes deste pacote): 1 = animal ja considerado fora.
+        bool estavaFora = (ultimoGeofenceAlert == 1);
+        int geofenceAlert = estavaFora ? 1 : 0;
         if (gpsFix == 1) {
           bool dentro = dentroDoPoligono(lat.toFloat(), lon.toFloat());
-          if (!dentro) {
-            // Fora do poligono geometricamente -- mas so confirma a fuga se
-            // a distancia da borda for maior que a margem de erro do GPS
-            // (medida empiricamente, ver Secao 5). Isso evita falso-positivo
-            // causado pelo proprio ruido de posicao do GPS perto da cerca.
-            float distanciaBorda = distanciaAteBordaPoligono(lat.toFloat(), lon.toFloat());
-            if (distanciaBorda > MARGEM_ERRO_GPS_M) {
-              geofenceAlert = 1;
-            } else {
-              Serial.println("[INFO] Fora do poligono, mas dentro da margem de erro do GPS (" +
-                              String(distanciaBorda, 2) + "m) — nao confirma fuga");
-            }
+          float distanciaBorda = distanciaAteBordaPoligono(lat.toFloat(), lon.toFloat());
+          if (dentro) {
+            geofenceAlert = 0;
+            Serial.println("[GEOFENCE] Dentro do poligono (" + String(distanciaBorda, 2) + "m da borda)");
+          } else if (distanciaBorda > MARGEM_ERRO_GPS_M) {
+            // Fora do poligono e alem da margem de erro do GPS (medida
+            // empiricamente, ver Secao 5): fuga confirmada.
+            geofenceAlert = 1;
+            Serial.println("[GEOFENCE] Fora do poligono, alem da margem (" + String(distanciaBorda, 2) + "m da borda)");
+          } else if (estavaFora) {
+            // Histerese: voltando de uma fuga, a faixa da margem ainda conta
+            // como fora. O retorno so e confirmado ao entrar no poligono.
+            Serial.println("[GEOFENCE] Fora do poligono, dentro da margem (" + String(distanciaBorda, 2) +
+                           "m) — fuga ainda ativa, aguardando retorno ao interior");
+          } else {
+            // Fora do poligono geometricamente, mas dentro da margem: evita
+            // falso-positivo causado pelo ruido de posicao do GPS perto da cerca.
+            Serial.println("[GEOFENCE] Fora do poligono, mas dentro da margem de erro do GPS (" +
+                            String(distanciaBorda, 2) + "m) — nao confirma fuga");
           }
         } else {
-          Serial.println("[INFO] Sem fix GPS — geofence_alert mantido em 0 (posicao nao confiavel)");
+          // Sem fix, lat/lon nao sao confiaveis: mantem o ultimo estado, para
+          // que um pacote NOFIX nao seja interpretado como "retornou".
+          Serial.println("[GEOFENCE] Sem fix GPS — geofence_alert mantido no ultimo valor (posicao nao confiavel)");
         }
 
         // Envia o geofence_alert como dot separado apenas quando MUDA de
         // valor (entrou ou saiu da cerca), para nao consumir a cota diaria
         // de dots da Ubidots STEM a cada pacote.
         if (geofenceAlert != ultimoGeofenceAlert) {
-          enviarGeofenceAlert(geofenceAlert);
-          ultimoGeofenceAlert = geofenceAlert;
+          if (geofenceAlert == 1) {
+            Serial.println("[ALERTA] FUGA CONFIRMADA — no=" + nodeId + " seq=" + seq + " saiu da cerca");
+          } else if (estavaFora) {
+            Serial.println("[ALERTA] RETORNO CONFIRMADO — no=" + nodeId + " seq=" + seq + " voltou para dentro da cerca");
+          }
+          if (enviarGeofenceAlert(geofenceAlert)) {
+            ultimoGeofenceAlert = geofenceAlert;
+          }
         }
 
         // --- Payload principal reduzido a 3 dots (position, rssi, snr) ---
