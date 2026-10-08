@@ -2,6 +2,8 @@
 #include <HardwareSerial.h>
 #include <WiFi.h>
 #include <HTTPClient.h>
+#include <time.h>
+#include <sys/time.h>
 #include "secrets.h"
 
 // Definido aqui no topo (e nao mais perto de onde e usado) porque o Arduino
@@ -27,6 +29,41 @@ const char* password = SECRET_PASSWORD;
 const char* ubidotsToken = SECRET_UBIDOTS_TOKEN;
 const char* deviceLabel  = "boi_01";
 String serverURL = "https://industrial.api.ubidots.com/api/v1.6/devices/" + String(deviceLabel);
+
+// --- Horario do log (NTP) ---
+// Cada linha do log serial recebe o horario local de recebimento, para
+// medir intervalo entre pacotes, atraso do repetidor e tempo de deteccao
+// da fuga. O horario vem de NTP via WiFi; Boa Vista = UTC-4, sem horario
+// de verao. Enquanto o NTP nao sincroniza (ex.: sem internet), o log usa
+// o tempo desde o boot no formato [+segundos.ms].
+#define FUSO_HORARIO_S (-4 * 3600)
+#define NTP_SERVIDOR_1 "a.st1.ntp.br"
+#define NTP_SERVIDOR_2 "pool.ntp.org"
+
+bool horarioSincronizado() {
+  return time(nullptr) > 1700000000;  // qualquer data depois de 2023 = NTP ok
+}
+
+String carimboHorario() {
+  char buf[24];
+  if (horarioSincronizado()) {
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    struct tm ti;
+    localtime_r(&tv.tv_sec, &ti);
+    snprintf(buf, sizeof(buf), "[%02d:%02d:%02d.%03ld]",
+             ti.tm_hour, ti.tm_min, ti.tm_sec, tv.tv_usec / 1000);
+  } else {
+    unsigned long ms = millis();
+    snprintf(buf, sizeof(buf), "[+%lu.%03lus]", ms / 1000, ms % 1000);
+  }
+  return String(buf);
+}
+
+// Substitui Serial.println nas mensagens de log, prefixando o horario.
+void logln(String msg) {
+  Serial.println(carimboHorario() + " " + msg);
+}
 
 // TTL inicial configurado nos nos sensores (deve bater com o TTL_INICIAL
 // usado no firmware da coleira). Usado apenas para calcular quantos saltos
@@ -152,7 +189,7 @@ int ultimoGeofenceAlert = -1;
 // proximo pacote (senao uma transicao, ex.: o retorno, se perde para sempre).
 bool enviarGeofenceAlert(int status) {
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[ERRO] WiFi desconectado, geofence_alert=" + String(status) + " nao enviado (sera reenviado no proximo pacote)");
+    logln("[ERRO] WiFi desconectado, geofence_alert=" + String(status) + " nao enviado (sera reenviado no proximo pacote)");
     return false;
   }
   String json = "{\"geofence_alert\":" + String(status) + "}";
@@ -162,9 +199,9 @@ bool enviarGeofenceAlert(int status) {
   http.addHeader("X-Auth-Token", ubidotsToken);
   int code = http.POST(json);
   String resposta = http.getString();
-  Serial.println("[HTTP] Geofence (" + String(status) + ") enviado. Resposta: " + String(code));
+  logln("[HTTP] Geofence (" + String(status) + ") enviado. Resposta: " + String(code));
   if (code != 200 && code != 201) {
-    Serial.println("[HTTP] Corpo da resposta (geofence): " + resposta);
+    logln("[HTTP] Corpo da resposta (geofence): " + resposta);
   }
   http.end();
   return code == 200 || code == 201;
@@ -190,7 +227,7 @@ String ultimaLonConhecida = "0";
 
 void enviarHeartbeat(int status) {
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[ERRO] WiFi desconectado, nao foi possivel enviar heartbeat");
+    logln("[ERRO] WiFi desconectado, nao foi possivel enviar heartbeat");
     return;
   }
 
@@ -205,9 +242,9 @@ void enviarHeartbeat(int status) {
   http.addHeader("X-Auth-Token", ubidotsToken);
   int code = http.POST(json);
   String resposta = http.getString();
-  Serial.println("[HTTP] Heartbeat (" + String(status) + ") enviado. Resposta: " + String(code));
+  logln("[HTTP] Heartbeat (" + String(status) + ") enviado. Resposta: " + String(code));
   if (code != 200 && code != 201) {
-    Serial.println("[HTTP] Corpo da resposta (heartbeat): " + resposta);
+    logln("[HTTP] Corpo da resposta (heartbeat): " + resposta);
   }
   http.end();
 }
@@ -234,7 +271,7 @@ String extraiValor(String texto, String chave) {
 void setup() {
   Serial.begin(115200);
   Serial.println("========================================");
-  Serial.println("   NO GATEWAY v2.6");
+  Serial.println("   NO GATEWAY v2.7");
   Serial.println("========================================");
 
   WiFi.mode(WIFI_STA);
@@ -252,6 +289,19 @@ void setup() {
 
   if (WiFi.status() == WL_CONNECTED) {
     Serial.println("\nWiFi OK! IP: " + WiFi.localIP().toString());
+
+    // Se nao sincronizar aqui, o SNTP continua tentando em segundo plano e
+    // o log troca sozinho do formato [+s] para [hh:mm:ss] quando conseguir.
+    configTime(FUSO_HORARIO_S, 0, NTP_SERVIDOR_1, NTP_SERVIDOR_2);
+    Serial.print("Sincronizando horario (NTP)");
+    struct tm ti;
+    if (getLocalTime(&ti, 10000)) {
+      char data[32];
+      strftime(data, sizeof(data), "%d/%m/%Y %H:%M:%S", &ti);
+      Serial.println("\nHorario OK: " + String(data) + " (UTC-4)");
+    } else {
+      Serial.println("\n[AVISO] NTP nao respondeu — log usara tempo desde o boot ate sincronizar");
+    }
   } else {
     Serial.println("\n[ERRO] Falha ao conectar apos " + String(tentativas) + " tentativas.");
     Serial.println("[ERRO] Codigo de status: " + String(WiFi.status()));
@@ -263,7 +313,7 @@ void setup() {
   delay(3000);
   lorawan.set_JoinMode(SMW_SX1276M0_JOIN_MODE_P2P);
   delay(2000);
-  Serial.println("[INFO] Gateway pronto — aguardando pacotes da cadeia de retransmissao");
+  logln("[INFO] Gateway pronto — aguardando pacotes da cadeia de retransmissao");
 }
 
 void loop() {
@@ -295,7 +345,7 @@ void loop() {
         int c7 = dados.indexOf(',', c6 + 1);
 
         if (c1 < 0 || c2 < 0 || c3 < 0 || c4 < 0 || c5 < 0 || c6 < 0 || c7 < 0) {
-          Serial.println("[ERRO] Payload malformado: " + dados);
+          logln("[ERRO] Payload malformado: " + dados);
           rssi = "0"; snr = "0";
           continue;
         }
@@ -314,7 +364,7 @@ void loop() {
         int hopCount  = TTL_INICIAL_CONHECIDO - ttl.toInt();
         int gpsFix    = status.startsWith("OK") ? 1 : 0;
 
-        Serial.println("[RX] no=" + nodeId + " seq=" + seq + " ttl_recebido=" + ttl + " hops=" + String(hopCount));
+        logln("[RX] no=" + nodeId + " seq=" + seq + " ttl_recebido=" + ttl + " hops=" + String(hopCount));
 
         // Atualiza o heartbeat a cada pacote valido recebido, mesmo que seja
         // descartado depois por deduplicacao — o que importa aqui e que o
@@ -325,14 +375,14 @@ void loop() {
         ultimaLonConhecida = lon;
 
         if (alertaPerdaContatoAtivo) {
-          Serial.println("[INFO] Contato reestabelecido apos alerta de perda de contato.");
+          logln("[INFO] Contato reestabelecido apos alerta de perda de contato.");
           alertaPerdaContatoAtivo = false;
           enviarHeartbeat(0);
         }
 
         // Descarta se esse (nodeId, seq) ja foi enviado a nuvem por outro caminho
         if (jaEnviado(nodeIdInt, seqInt)) {
-          Serial.println("[SKIP] no=" + nodeId + " seq=" + seq + " ja enviado a nuvem (chegou por outro caminho, hops=" + String(hopCount) + ")");
+          logln("[SKIP] no=" + nodeId + " seq=" + seq + " ja enviado a nuvem (chegou por outro caminho, hops=" + String(hopCount) + ")");
           rssi = "0"; snr = "0";
           continue;
         }
@@ -349,27 +399,27 @@ void loop() {
           float distanciaBorda = distanciaAteBordaPoligono(lat.toFloat(), lon.toFloat());
           if (dentro) {
             geofenceAlert = 0;
-            Serial.println("[GEOFENCE] Dentro do poligono (" + String(distanciaBorda, 2) + "m da borda)");
+            logln("[GEOFENCE] Dentro do poligono (" + String(distanciaBorda, 2) + "m da borda)");
           } else if (distanciaBorda > MARGEM_ERRO_GPS_M) {
             // Fora do poligono e alem da margem de erro do GPS (medida
             // empiricamente, ver Secao 5): fuga confirmada.
             geofenceAlert = 1;
-            Serial.println("[GEOFENCE] Fora do poligono, alem da margem (" + String(distanciaBorda, 2) + "m da borda)");
+            logln("[GEOFENCE] Fora do poligono, alem da margem (" + String(distanciaBorda, 2) + "m da borda)");
           } else if (estavaFora) {
             // Histerese: voltando de uma fuga, a faixa da margem ainda conta
             // como fora. O retorno so e confirmado ao entrar no poligono.
-            Serial.println("[GEOFENCE] Fora do poligono, dentro da margem (" + String(distanciaBorda, 2) +
+            logln("[GEOFENCE] Fora do poligono, dentro da margem (" + String(distanciaBorda, 2) +
                            "m) — fuga ainda ativa, aguardando retorno ao interior");
           } else {
             // Fora do poligono geometricamente, mas dentro da margem: evita
             // falso-positivo causado pelo ruido de posicao do GPS perto da cerca.
-            Serial.println("[GEOFENCE] Fora do poligono, mas dentro da margem de erro do GPS (" +
+            logln("[GEOFENCE] Fora do poligono, mas dentro da margem de erro do GPS (" +
                             String(distanciaBorda, 2) + "m) — nao confirma fuga");
           }
         } else {
           // Sem fix, lat/lon nao sao confiaveis: mantem o ultimo estado, para
           // que um pacote NOFIX nao seja interpretado como "retornou".
-          Serial.println("[GEOFENCE] Sem fix GPS — geofence_alert mantido no ultimo valor (posicao nao confiavel)");
+          logln("[GEOFENCE] Sem fix GPS — geofence_alert mantido no ultimo valor (posicao nao confiavel)");
         }
 
         // Envia o geofence_alert como dot separado apenas quando MUDA de
@@ -377,9 +427,9 @@ void loop() {
         // de dots da Ubidots STEM a cada pacote.
         if (geofenceAlert != ultimoGeofenceAlert) {
           if (geofenceAlert == 1) {
-            Serial.println("[ALERTA] FUGA CONFIRMADA — no=" + nodeId + " seq=" + seq + " saiu da cerca");
+            logln("[ALERTA] FUGA CONFIRMADA — no=" + nodeId + " seq=" + seq + " saiu da cerca");
           } else if (estavaFora) {
-            Serial.println("[ALERTA] RETORNO CONFIRMADO — no=" + nodeId + " seq=" + seq + " voltou para dentro da cerca");
+            logln("[ALERTA] RETORNO CONFIRMADO — no=" + nodeId + " seq=" + seq + " voltou para dentro da cerca");
           }
           if (enviarGeofenceAlert(geofenceAlert)) {
             ultimoGeofenceAlert = geofenceAlert;
@@ -406,7 +456,7 @@ void loop() {
         json += "\"snr\":" + snr;
         json += "}";
 
-        Serial.println("[HTTP] Enviando: " + json);
+        logln("[HTTP] Enviando: " + json);
 
         if (WiFi.status() == WL_CONNECTED) {
           HTTPClient http;
@@ -415,13 +465,13 @@ void loop() {
           http.addHeader("X-Auth-Token", ubidotsToken);
           int code = http.POST(json);
           String resposta = http.getString();
-          Serial.println("[HTTP] Resposta: " + String(code));
+          logln("[HTTP] Resposta: " + String(code));
           if (code != 200 && code != 201) {
-            Serial.println("[HTTP] Corpo da resposta: " + resposta);
+            logln("[HTTP] Corpo da resposta: " + resposta);
           }
           http.end();
         } else {
-          Serial.println("[ERRO] WiFi desconectado, pacote descartado");
+          logln("[ERRO] WiFi desconectado, pacote descartado");
         }
 
         rssi = "0";
@@ -438,7 +488,7 @@ void loop() {
 
     if (primeiroPacoteRecebido && !alertaPerdaContatoAtivo) {
       if (millis() - ultimoContatoMillis > LIMIAR_PERDA_CONTATO_MS) {
-        Serial.println("[ALERTA] Perda de contato detectada! Ultimo contato ha " +
+        logln("[ALERTA] Perda de contato detectada! Ultimo contato ha " +
                         String((millis() - ultimoContatoMillis) / 1000) + "s");
         alertaPerdaContatoAtivo = true;
         enviarHeartbeat(1);
