@@ -17,13 +17,12 @@ TinyGPSPlus gps;
 #define TTL_INICIAL 5          // numero maximo de saltos permitidos ate o Gateway
 
 // --- Intervalo entre ciclos de transmissao ---
-// Valor de campo (conforme TCC): 3-4 minutos. Para testes de bancada,
-// reduza temporariamente para 15000-30000 (15-30s) e volte ao valor de
-// campo antes dos ensaios reais descritos na Secao 4.2.
-#define INTERVALO_TRANSMISSAO_MS 180000UL
-
-// Idade maxima (ms) de uma coordenada para ser considerada fix atual.
-#define IDADE_MAX_FIX_MS 2000UL
+// Valor de campo (conforme TCC): 3-4 minutos. REDUZIDO TEMPORARIAMENTE
+// para 20s para o teste no campus da UFRR com o orientador.
+// REVERTER para 180000UL (3 min) antes de qualquer ensaio de campo real
+// (Secao 4.2).
+// Valor de campo original: 180000UL (3-4 minutos)
+#define INTERVALO_TRANSMISSAO_MS 20000UL
 
 int seq = 0;
 
@@ -73,10 +72,7 @@ void loop() {
   // nodeId,seq,ttl,lat,lon,sat,hdop,status
   String payload;
 
-  // isValid() continua true para sempre apos o primeiro fix; age() garante
-  // que a coordenada foi atualizada nesta janela de leitura, e nao e uma
-  // posicao antiga de quando o GPS ainda tinha sinal.
-  if (gps.location.isValid() && gps.location.age() < IDADE_MAX_FIX_MS) {
+  if (gps.location.isValid()) {
     float hdop = gps.hdop.hdop();
     float precisao = hdop * 2.5;
 
