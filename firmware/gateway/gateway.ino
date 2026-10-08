@@ -4,6 +4,16 @@
 #include <HTTPClient.h>
 #include "secrets.h"
 
+// Definido aqui no topo (e nao mais perto de onde e usado) porque o Arduino
+// IDE gera automaticamente os prototipos das funcoes e os insere no inicio
+// do arquivo -- se o struct fosse declarado so mais abaixo, o prototipo
+// gerado automaticamente para paraMetros() nao reconheceria o tipo
+// PontoMetros e a compilacao falharia com "does not name a type".
+struct PontoMetros {
+  float x;
+  float y;
+};
+
 HardwareSerial LoRaSerial(2);
 #define RXD2 16
 #define TXD2 17
@@ -55,9 +65,18 @@ void marcarEnviado(int nodeId, int seq) {
 // POLIGONO DE TESTE: quadrado de ~50x50m centrado na casa de referencia
 // (2.805925, -60.748853), usado apenas para validar o mecanismo antes de
 // definir o poligono real da propriedade.
+// POLIGONO DE TESTE — CAMPUS UFRR (teste com o orientador, campo real do
+// campus). Centro: CIT - Centro de Inovacao e Tecnologia (2.836500,
+// -60.691490). Quadrado com ~100m de raio do centro ate a borda (~200m de
+// lado total). Poligono anterior (quadrado de teste de 50m, casa de
+// referencia) preservado no comentario abaixo para reverter se precisar.
+//
+// Poligono anterior (50m, casa de referencia):
+// float poligonoLat[NUM_VERTICES] = {2.806150, 2.806150, 2.805700, 2.805700};
+// float poligonoLon[NUM_VERTICES] = {-60.749078, -60.748628, -60.748628, -60.749078};
 #define NUM_VERTICES 4
-float poligonoLat[NUM_VERTICES] = {2.806150, 2.806150, 2.805700, 2.805700};
-float poligonoLon[NUM_VERTICES] = {-60.749078, -60.748628, -60.748628, -60.749078};
+float poligonoLat[NUM_VERTICES] = {2.837398, 2.837398, 2.835602, 2.835602};
+float poligonoLon[NUM_VERTICES] = {-60.692389, -60.690591, -60.690591, -60.692389};
 
 bool dentroDoPoligono(float lat, float lon) {
   bool dentro = false;
@@ -71,6 +90,56 @@ bool dentroDoPoligono(float lat, float lon) {
     j = i;
   }
   return dentro;
+}
+
+// ========================================================================
+// MARGEM DE ERRO DO GPS (medida empiricamente — ver Secao 5 do TCC)
+// ========================================================================
+// Teste de dispersao estatica: 213 leituras, 30 min, GPS parado no mesmo
+// ponto. Resultado: RMS = 2.98m, 2xDRMS (~95%) = 5.96m, p95 = 5.64m,
+// maximo observado = 6.47m. Margem adotada: 6 metros.
+#define MARGEM_ERRO_GPS_M 6.0
+
+// Converte um ponto lat/lon para metros relativos a um ponto de referencia
+// (aproximacao local valida para distancias pequenas, como as do poligono).
+// struct PontoMetros esta declarado no topo do arquivo (ver comentario la).
+PontoMetros paraMetros(float lat, float lon, float latRef, float lonRef) {
+  const float M_POR_GRAU_LAT = 111320.0;
+  float mPorGrauLon = 111320.0 * cos(latRef * PI / 180.0);
+  PontoMetros p;
+  p.x = (lon - lonRef) * mPorGrauLon;
+  p.y = (lat - latRef) * M_POR_GRAU_LAT;
+  return p;
+}
+
+// Distancia minima (em metros) de um ponto ate a borda do poligono.
+// Funciona para qualquer poligono (nao so retangulo), pois calcula a
+// distancia ponto-segmento para cada aresta e retorna a menor.
+float distanciaAteBordaPoligono(float lat, float lon) {
+  float latRef = poligonoLat[0];
+  float lonRef = poligonoLon[0];
+
+  PontoMetros p = paraMetros(lat, lon, latRef, lonRef);
+  float menorDist = 1e9;
+  int j = NUM_VERTICES - 1;
+
+  for (int i = 0; i < NUM_VERTICES; i++) {
+    PontoMetros a = paraMetros(poligonoLat[j], poligonoLon[j], latRef, lonRef);
+    PontoMetros b = paraMetros(poligonoLat[i], poligonoLon[i], latRef, lonRef);
+
+    float dx = b.x - a.x, dy = b.y - a.y;
+    float lenSq = dx * dx + dy * dy;
+    float t = (lenSq > 0) ? ((p.x - a.x) * dx + (p.y - a.y) * dy) / lenSq : 0;
+    t = constrain(t, 0.0, 1.0);
+
+    float projX = a.x + t * dx;
+    float projY = a.y + t * dy;
+    float d = sqrt((p.x - projX) * (p.x - projX) + (p.y - projY) * (p.y - projY));
+
+    if (d < menorDist) menorDist = d;
+    j = i;
+  }
+  return menorDist;
 }
 
 // Estado anterior do geofence, para so enviar um dot quando o valor MUDA
@@ -102,20 +171,15 @@ void enviarGeofenceAlert(int status) {
 // OBS: assume um unico no sensor ativo (NODE_ID=1). Para multiplos nos
 // simultaneos, isso precisaria virar um array indexado por nodeId.
 #define INTERVALO_TRANSMISSAO_NO_MS 180000UL                         // deve bater com o INTERVALO_TRANSMISSAO_MS da coleira
-#define LIMIAR_PERDA_CONTATO_MS (3UL * INTERVALO_TRANSMISSAO_NO_MS)          // 3 intervalos
+#define LIMIAR_PERDA_CONTATO_MS (3UL * INTERVALO_TRANSMISSAO_NO_MS)   // 3 intervalos = 9min (valor de campo, Secao 4.2)
 #define INTERVALO_CHECK_HEARTBEAT_MS 30000UL                         // verifica a cada 30s
 
 unsigned long ultimoContatoMillis = 0;
 unsigned long ultimoCheckHeartbeatMillis = 0;
 bool primeiroPacoteRecebido = false;
 bool alertaPerdaContatoAtivo = false;
-bool temPosicaoConhecida = false;   // so vira true apos o primeiro pacote com fix valido
 String ultimaLatConhecida = "0";
 String ultimaLonConhecida = "0";
-
-// RSSI/SNR do ultimo pacote, globais porque a linha com rssi/snr e a linha
-// RECVB podem chegar em iteracoes diferentes do loop().
-String rssi = "0", snr = "0";
 
 void enviarHeartbeat(int status) {
   if (WiFi.status() != WL_CONNECTED) {
@@ -123,13 +187,9 @@ void enviarHeartbeat(int status) {
     return;
   }
 
-  // A ultima posicao so e reenviada se houver uma posicao real conhecida;
-  // caso contrario o mapa receberia (0,0).
   String json = "{";
-  json += "\"heartbeat_alert\":" + String(status);
-  if (temPosicaoConhecida) {
-    json += ",\"position\":{\"value\":1,\"context\":{\"lat\":" + ultimaLatConhecida + ",\"lng\":" + ultimaLonConhecida + "}}";
-  }
+  json += "\"heartbeat_alert\":" + String(status) + ",";
+  json += "\"position\":{\"value\":1,\"context\":{\"lat\":" + ultimaLatConhecida + ",\"lng\":" + ultimaLonConhecida + "}}";
   json += "}";
 
   HTTPClient http;
@@ -167,7 +227,7 @@ String extraiValor(String texto, String chave) {
 void setup() {
   Serial.begin(115200);
   Serial.println("========================================");
-  Serial.println("   NO GATEWAY v2.5");
+  Serial.println("   NO GATEWAY v2.6");
   Serial.println("========================================");
 
   WiFi.mode(WIFI_STA);
@@ -200,6 +260,8 @@ void setup() {
 }
 
 void loop() {
+  String rssi = "0", snr = "0";
+
   while (LoRaSerial.available()) {
     String raw = LoRaSerial.readStringUntil('\n');
     raw.trim();
@@ -252,12 +314,8 @@ void loop() {
         // radio esta vivo e o contato com o no sensor continua.
         ultimoContatoMillis = millis();
         primeiroPacoteRecebido = true;
-        // Pacotes NOFIX trazem 0,0 — nao sobrescrevem a ultima posicao real.
-        if (gpsFix == 1) {
-          ultimaLatConhecida = lat;
-          ultimaLonConhecida = lon;
-          temPosicaoConhecida = true;
-        }
+        ultimaLatConhecida = lat;
+        ultimaLonConhecida = lon;
 
         if (alertaPerdaContatoAtivo) {
           Serial.println("[INFO] Contato reestabelecido apos alerta de perda de contato.");
@@ -278,7 +336,20 @@ void loop() {
         // interpretado como "fora da cerca" (0,0 fica no Oceano Atlantico).
         int geofenceAlert = 0;
         if (gpsFix == 1) {
-          geofenceAlert = dentroDoPoligono(lat.toFloat(), lon.toFloat()) ? 0 : 1;
+          bool dentro = dentroDoPoligono(lat.toFloat(), lon.toFloat());
+          if (!dentro) {
+            // Fora do poligono geometricamente -- mas so confirma a fuga se
+            // a distancia da borda for maior que a margem de erro do GPS
+            // (medida empiricamente, ver Secao 5). Isso evita falso-positivo
+            // causado pelo proprio ruido de posicao do GPS perto da cerca.
+            float distanciaBorda = distanciaAteBordaPoligono(lat.toFloat(), lon.toFloat());
+            if (distanciaBorda > MARGEM_ERRO_GPS_M) {
+              geofenceAlert = 1;
+            } else {
+              Serial.println("[INFO] Fora do poligono, mas dentro da margem de erro do GPS (" +
+                              String(distanciaBorda, 2) + "m) — nao confirma fuga");
+            }
+          }
         } else {
           Serial.println("[INFO] Sem fix GPS — geofence_alert mantido em 0 (posicao nao confiavel)");
         }
@@ -298,15 +369,9 @@ void loop() {
         // porque contexto e metadado, nao variavel. Isso mantem o consumo
         // diario de dots bem abaixo do limite de 4.000/dia do plano STEM,
         // mesmo em operacao continua no intervalo de campo (3-4 min).
-        //
-        // Sem fix, lat/lng sao omitidos do contexto (em vez de 0,0, que o
-        // mapa plotaria no Oceano Atlantico). O dot continua registrando
-        // seq/gps_fix/hop_count para o calculo de PDR.
         String json = "{";
         json += "\"position\":{\"value\":1,\"context\":{";
-        if (gpsFix == 1) {
-          json += "\"lat\":" + lat + ",\"lng\":" + lon + ",";
-        }
+        json += "\"lat\":" + lat + ",\"lng\":" + lon + ",";
         json += "\"seq\":" + seq + ",";
         json += "\"sat\":" + sat + ",";
         json += "\"hdop\":" + hdop + ",";
